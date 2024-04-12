@@ -169,6 +169,7 @@ pub const Adapter = struct {
     dxgi_adapter: *c.IDXGIAdapter1,
     d3d_device: *c.ID3D12Device,
     dxgi_desc: c.DXGI_ADAPTER_DESC1,
+    driver_desc: [:0]const u8,
 
     pub fn init(instance: *Instance, options: *const sysgpu.RequestAdapterOptions) !*Adapter {
         // TODO - choose appropriate device from options
@@ -206,12 +207,24 @@ pub const Adapter = struct {
             if (hr == c.S_OK) {
                 _ = dxgi_adapter.lpVtbl.*.AddRef.?(dxgi_adapter);
 
+                var desc: [128]u8 = .{0} ** 128;
+
+                for (dxgi_desc.Description, 0..) |ch, pos| {
+                    desc[pos] = @intCast(ch);
+                }
+
+                const driver_desc = try std.fmt.allocPrintZ(
+                    allocator,
+                    "D3D12 driver (sysgpu) {s}",
+                    .{desc},
+                );
                 const adapter = try allocator.create(Adapter);
                 adapter.* = .{
                     .instance = instance,
                     .dxgi_adapter = dxgi_adapter,
                     .d3d_device = d3d_device,
                     .dxgi_desc = dxgi_desc,
+                    .driver_desc = driver_desc,
                 };
                 return adapter;
             }
@@ -225,6 +238,7 @@ pub const Adapter = struct {
         const d3d_device = adapter.d3d_device;
         _ = dxgi_adapter.lpVtbl.*.Release.?(dxgi_adapter);
         _ = d3d_device.lpVtbl.*.Release.?(d3d_device);
+        allocator.free(adapter.driver_desc);
         allocator.destroy(adapter);
     }
 
@@ -241,7 +255,7 @@ pub const Adapter = struct {
             .architecture = "", // TODO
             .device_id = dxgi_desc.DeviceId,
             .name = "", // TODO - wide to ascii - dxgi_desc.Description
-            .driver_description = "", // TODO
+            .driver_description = adapter.driver_desc,
             .adapter_type = .unknown,
             .backend_type = .d3d12,
             .compatibility_mode = .false,
